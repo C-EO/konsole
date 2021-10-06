@@ -232,8 +232,9 @@ private:
     struct ShortcutData {
         Profile::Ptr profileKey;
         QString profilePath;
+        QKeySequence shortcutKeys;
     };
-    QMap<QKeySequence, ShortcutData> _shortcuts; // shortcut keys -> profile path
+    std::vector<ShortcutData> _shortcuts;
 
     // finds out if it's a internal profile or an external one,
     // fixing the path to point to the correct location for the profile.

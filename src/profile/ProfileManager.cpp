@@ -53,7 +53,6 @@ ProfileManager::ProfileManager()
     : _defaultProfile(nullptr)
     , _fallbackProfile(nullptr)
     , _loadedAllProfiles(false)
-    , _shortcuts(QMap<QKeySequence, ShortcutData>())
 {
     // load fallback profile
     initFallbackProfile();
@@ -483,16 +482,13 @@ void ProfileManager::loadShortcuts()
         QKeySequence shortcut = QKeySequence::fromString(iter.key());
         QString profilePath = iter.value();
 
-        ShortcutData data;
-
         // if the file is not an absolute path, look it up
         QFileInfo fileInfo(profilePath);
         if (!fileInfo.isAbsolute()) {
             profilePath = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QStringLiteral("konsole/") + profilePath);
         }
 
-        data.profilePath = profilePath;
-        _shortcuts.insert(shortcut, data);
+        _shortcuts.push_back({Profile::Ptr{}, profilePath, shortcut});
     }
 }
 
@@ -509,43 +505,38 @@ void ProfileManager::saveShortcuts()
     KConfigGroup shortcutGroup = appConfig->group("Profile Shortcuts");
     shortcutGroup.deleteGroup();
 
-    QMapIterator<QKeySequence, ShortcutData> iter(_shortcuts);
-    while (iter.hasNext()) {
-        iter.next();
-        QString shortcutString = iter.key().toString();
-        QString profileName = normalizePath(iter.value().profilePath);
-        shortcutGroup.writeEntry(shortcutString, profileName);
+    for (const auto &[profile, path, keySeq] : _shortcuts) {
+        shortcutGroup.writeEntry(keySeq.toString(), normalizePath(path));
     }
 }
 
 void ProfileManager::setShortcut(Profile::Ptr profile, const QKeySequence &keySequence)
 {
     QKeySequence existingShortcut = shortcut(profile);
-    _shortcuts.remove(existingShortcut);
+
+    auto it = std::find_if(_shortcuts.cbegin(), _shortcuts.cend(), [&existingShortcut](const ShortcutData &data) {
+        return data.shortcutKeys == existingShortcut;
+    });
+    if (it != _shortcuts.cend()) {
+        _shortcuts.erase(it);
+    }
 
     if (keySequence.isEmpty()) {
         return;
     }
 
-    ShortcutData data;
-    data.profileKey = profile;
-    data.profilePath = profile->path();
     // TODO - This won't work if the profile doesn't
     // have a path yet
-    _shortcuts.insert(keySequence, data);
+    _shortcuts.push_back(ShortcutData{profile, profile->path(), keySequence});
 
     Q_EMIT shortcutChanged(profile, keySequence);
 }
 
 QKeySequence ProfileManager::shortcut(Profile::Ptr profile) const
 {
-    QMapIterator<QKeySequence, ShortcutData> iter(_shortcuts);
-    while (iter.hasNext()) {
-        iter.next();
-        if (iter.value().profileKey == profile || iter.value().profilePath == profile->path()) {
-            return iter.key();
-        }
-    }
+    auto it = std::find_if(_shortcuts.cbegin(), _shortcuts.cend(), [&profile](const ShortcutData &data) {
+        return data.profileKey == profile || data.profilePath == profile->path();
+    });
 
-    return QKeySequence();
+    return it != _shortcuts.cend() ? it->shortcutKeys : QKeySequence{};
 }
